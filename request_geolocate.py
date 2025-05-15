@@ -50,37 +50,48 @@ class Geolocate:
         'languageKey': '0'
     }
 
-    def __init__(self):
-        self.args = self._parse_args()
+    def __init__(self, params: dict = None):
+        if params:
+            # Initialize from parameters
+            self.args = self._dict_to_namespace(params)
+        else:
+            # Fallback to argparse CLI mode
+            self.args = self._parse_args()
+
         if self.args.verbose:
             logging.basicConfig(level=logging.DEBUG)
+
         # Setup persistent caching (SQLite)
         requests_cache.install_cache(
             cache_name=self.args.cache_db or 'geolocate_cache',
-            backend='sqlite', expire_after=None
+            backend='sqlite',
+            expire_after=None
         )
 
     @staticmethod
     def _parse_args():
-        parser = argparse.ArgumentParser(
-            description='Geolocate CSV(s) via GEOLocate webservice'
-        )
-        parser.add_argument('-i', '--input', type=Path, required=True,
-                            help='Input CSV file or directory containing CSVs')
-        parser.add_argument('-o', '--output', type=Path, required=True,
-                            help='Output CSV file or directory')
-        parser.add_argument('--cache-db', type=str, default=None,
-                            help='SQLite cache DB filename (defaults to builtin cache)')
-        parser.add_argument('-t', '--delay', type=float, default=0.6,
-                            help='Seconds between API calls')
-        parser.add_argument('-v', '--verbose', action='store_true',
-                            help='Enable debug logging')
+        parser = argparse.ArgumentParser(description='Geolocate CSV(s) via GEOLocate webservice')
+        parser.add_argument('-i', '--input', type=Path, required=True, help='Input CSV or folder')
+        parser.add_argument('-o', '--output', type=Path, required=True, help='Output CSV or folder')
+        parser.add_argument('--cache-db', type=str, default=None, help='SQLite cache DB filename')
+        parser.add_argument('-t', '--delay', type=float, default=0.6, help='Delay between API calls')
+        parser.add_argument('-v', '--verbose', action='store_true', help='Enable debug logging')
         parser.add_argument('--country', default='country', help='Country field name')
         parser.add_argument('--state', default='state', help='State field name')
         parser.add_argument('--county', default='county', help='County field name')
-        parser.add_argument('--locality', default='locality',
-                            help='Locality field name')
+        parser.add_argument('--locality', default='locality', help='Locality field name')
         return parser.parse_args()
+
+    @staticmethod
+    def _dict_to_namespace(d: dict):
+        """Convert a plain dict to an argparse.Namespace object."""
+        from types import SimpleNamespace
+        ns = SimpleNamespace(**d)
+        # Ensure Path conversion
+        for key in ['input', 'output']:
+            if hasattr(ns, key):
+                setattr(ns, key, Path(getattr(ns, key)))
+        return ns
 
     def _georef(self, user_params: dict) -> list['Geolocate.Result']:
         """requests the geolocate endpoint with a user params dict on a row by row basis
@@ -128,7 +139,7 @@ class Geolocate:
                 logging.warning(f"Skipping {in_path}: no headers found.")
                 return
             fieldnames = reader.fieldnames + [
-                'Geo_LocalityID', 'Geo_ResultID', 'Geo_Lat', 'Geo_Lon',
+                'LocalityID', 'Geo_ResultID', 'Geo_Lat', 'Geo_Lon',
                 'Geo_UncertaintyM', 'Geo_Score', 'Geo_Precision',
                 'Geo_ParsePattern', 'Geo_NumResults'
             ]
@@ -150,7 +161,7 @@ class Geolocate:
                     res = results[0]
                     out = row.copy()
                     out.update({
-                        'Geo_LocalityID': idx,
+                        'LocalityID': row.get("LocalityID", ''),
                         'Geo_ResultID': 1,
                         'Geo_Lat': res.latitude,
                         'Geo_Lon': res.longitude,
@@ -162,7 +173,7 @@ class Geolocate:
                 else:
                     out = row.copy()
                     out.update({
-                        'Geo_LocalityID': idx,
+                        'LocalityID': row.get("LocalityID", ''),
                         'Geo_ResultID': '',
                         'Geo_Lat': '',
                         'Geo_Lon': '',
