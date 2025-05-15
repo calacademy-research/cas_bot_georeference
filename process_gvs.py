@@ -2,20 +2,23 @@ import pandas as pd
 import requests
 import json
 import math
+import logging
 
 class GVSProcess:
-    def __init__(self, input_csv="geo_csvs/output_csv/test_geo_output.csv"):
-        self.input_csv = input_csv
-        self.geolocate_data = pd.read_csv(input_csv)
+    def __init__(self, geocoded_csv):
+        self.input_csv = geocoded_csv
         self.process_csv_gvs()
+        self.merged_df = None
+        self.logger = logging.getLogger(__name__)
+        logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s')
 
     def filter_lat_long_frame(self):
         """Extract Geo_Lat and Geo_Lon if available and valid."""
         required_columns = ['Geo_Lat', 'Geo_Lon']
-        if not all(col in self.geolocate_data.columns for col in required_columns):
+        if not all(col in self.input_csv.columns for col in required_columns):
             raise ValueError("Geo_Lat and Geo_Lon must exist in input data")
 
-        df = self.geolocate_data[required_columns].dropna()
+        df = self.input_csv[required_columns].dropna()
         df = df[(df['Geo_Lat'].apply(lambda x: self._is_number(x))) &
                 (df['Geo_Lon'].apply(lambda x: self._is_number(x)))]
         return df.drop_duplicates().copy()
@@ -41,7 +44,7 @@ class GVSProcess:
     ) -> pd.DataFrame | None:
         """Query GVS API and return full DataFrame."""
         if not coords:
-            print("No valid coordinates to query.")
+            self.logger.warning("No valid coordinates to query.")
             return None
 
         payload = {
@@ -63,10 +66,13 @@ class GVSProcess:
             # Re-attach lat/lon so we can merge
             result["Geo_Lat"] = [lat for lat, _ in coords]
             result["Geo_Lon"] = [lon for _, lon in coords]
+
+            self.logger.info(f"{len(result['Geo_Lat'])} Results returned from gvs api")
+
             return result
 
         except requests.exceptions.RequestException as e:
-            print(f"GVS API error: {e}")
+            self.logger.error(f"GVS API error: {e}")
             return None
 
     def process_csv_gvs(self):
@@ -76,16 +82,15 @@ class GVSProcess:
         gvs_result_df = self.batch_query_gvs(coords)
 
         if gvs_result_df is None:
-            print("No data returned from GVS API.")
+            self.logger.error("No data returned from GVS API.")
             return
 
         # Merge full GVS output on Geo_Lat and Geo_Lon
-        merged_df = pd.merge(
-            self.geolocate_data,
+        self.merged_df = pd.merge(
+            self.input_csv,
             gvs_result_df,
             how="left",
             on=["Geo_Lat", "Geo_Lon"]
         )
 
-        print("Merged result preview:\n", merged_df.head())
-        merged_df.to_csv("geo_csvs/output_csv/gvs_merged_output.csv", index=False)
+        return self.merged_df

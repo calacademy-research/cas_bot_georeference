@@ -15,13 +15,15 @@ class ProcessAll:
 
         self.logger.info("Running GEOLocate...")
         self.geolocate = Geolocate(cli_args)
-        self.geolocate.run()
+        self.geo_csv = self.geolocate.geocoded_data
 
         self.logger.info("Initializing and running GVS...")
-        self.gvs_process = GVSProcess()  # Automatically runs in __init__
+        self.gvs_process = GVSProcess(geocoded_csv=self.geo_csv)
+
+        self.gvs_checked = self.gvs_process.process_csv_gvs()
 
         self.logger.info("Initializing and cleaning coordinates...")
-        self.clean_coords = CleanCoords()  # Automatically runs in __init__
+        self.clean_coords = CleanCoords(self.gvs_checked)
         self.logger.info("Pipeline completed.")
 
 

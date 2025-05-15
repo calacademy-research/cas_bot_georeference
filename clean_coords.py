@@ -2,8 +2,10 @@
 Occupying the last major step of the pipeline. Geolocate --> GVS --> Cleaning"""
 import pandas as pd
 class CleanCoords:
-    def __init__(self):
+    def __init__(self, processed_csv):
+        self.final_csv = processed_csv
         self.placeholder_function()
 
     def placeholder_function(self):
+        print(self.final_csv.head())
         print("Coordinates Cleaned !")
