@@ -7,5 +7,5 @@ class CleanCoords:
         self.placeholder_function()
 
     def placeholder_function(self):
-        print(self.final_csv.head())
+        self.final_csv.to_csv("geo_csvs/output_csv/final_output.csv", index=False, encoding="utf-8-sig")
         print("Coordinates Cleaned !")

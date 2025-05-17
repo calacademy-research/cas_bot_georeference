@@ -1,4 +1,7 @@
 import argparse
+
+import pandas as pd
+
 from request_geolocate import Geolocate
 from process_gvs import GVSProcess
 from clean_coords import CleanCoords
@@ -12,12 +15,12 @@ class ProcessAll:
             level=logging.DEBUG if cli_args.get("verbose") else logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
-
         self.logger.info("Running GEOLocate...")
         self.geolocate = Geolocate(cli_args)
         self.geo_csv = self.geolocate.geocoded_data
 
         self.logger.info("Initializing and running GVS...")
+        self.geo_csv.to_csv("geo_csvs/test_csvs/test_geo_output2.csv")
         self.gvs_process = GVSProcess(geocoded_csv=self.geo_csv)
 
         self.gvs_checked = self.gvs_process.process_csv_gvs()
@@ -29,9 +32,6 @@ class ProcessAll:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run the full geolocation pipeline.')
-
-    parser.add_argument('-i', '--input', type=str, required=True, help='Input CSV file or folder')
-    parser.add_argument('-o', '--output', type=str, required=True, help='Output CSV file or folder')
     parser.add_argument('--cache-db', type=str, default=None, help='SQLite cache DB filename')
     parser.add_argument('-t', '--delay', type=float, default=0.6, help='Delay between GEOLocate API calls')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable debug logging')

@@ -6,11 +6,11 @@ import logging
 
 class GVSProcess:
     def __init__(self, geocoded_csv):
+        self.logger = logging.getLogger(__name__)
+        logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s')
         self.input_csv = geocoded_csv
         self.process_csv_gvs()
         self.merged_df = None
-        self.logger = logging.getLogger(__name__)
-        logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s')
 
     def filter_lat_long_frame(self):
         """Extract Geo_Lat and Geo_Lon if available and valid."""
@@ -81,9 +81,19 @@ class GVSProcess:
         coords = self.extract_coords(coord_frame)
         gvs_result_df = self.batch_query_gvs(coords)
 
+        # forcing geo lat longs into float
+
         if gvs_result_df is None:
             self.logger.error("No data returned from GVS API.")
             return
+
+        for df in [self.input_csv, gvs_result_df]:
+            if df is None:
+                continue
+            for col in ['Geo_Lat', 'Geo_Lon']:
+                df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
+
+        gvs_result_df.rename({'country': 'gvs_country', 'state': 'gvs_state', 'county': 'gvs_county'}, inplace=True)
 
         # Merge full GVS output on Geo_Lat and Geo_Lon
         self.merged_df = pd.merge(
