@@ -99,6 +99,38 @@ class Geolocate:
             ))
         return results
 
+    def _decimal_places(self, val):
+        """Returns the number of decimal places in a float or stringified float."""
+        try:
+            s = str(val)
+            if '.' in s:
+                return len(s.split('.')[-1].rstrip('0'))
+        except Exception:
+            pass
+        return 0
+
+
+    def _round_coords(self):
+        """Rounds Geo_Lat and Geo_Lon to the least precise decimal place between the two per row."""
+
+        def _round_row(row):
+            lat = row['Geo_Lat']
+            lon = row['Geo_Lon']
+            try:
+                lat_dp = self._decimal_places(lat)
+                lon_dp = self._decimal_places(lon)
+                target_dp = min(lat_dp, lon_dp)
+
+                if pd.notnull(lat) and pd.notnull(lon):
+                    row['Geo_Lat'] = round(float(lat), target_dp)
+                    row['Geo_Lon'] = round(float(lon), target_dp)
+            except Exception:
+                pass
+            return row
+
+        self.geocoded_data = self.geocoded_data.apply(_round_row, axis=1)
+
+
     def _load_and_concat_csvs(self, folder: Path) -> pd.DataFrame:
         """Loads and concatenates all CSV files from the input folder."""
         all_csvs = sorted(folder.glob("*.csv"))
@@ -142,7 +174,7 @@ class Geolocate:
                 row_data['Geo_Lat'] = row.get('latitude')
                 row_data['Geo_Lon'] = row.get('longitude')
                 row_data['Geo_UncertaintyM'] = row.get('coordinate_uncertainty_meters')
-                row_data['Geo_ResultID'] = 'bels'
+                row_data['Geo_ResultID'] = ''
                 row_data['Geo_Source'] = 'bels'
             else:
                 # Use GEOLocate
@@ -159,7 +191,6 @@ class Geolocate:
 
                 if results:
                     res = results[0]
-                    logging.info(f"KAR: {res}")
                     row_data.update({
                         'Geo_ResultID': 1,
                         'Geo_Lat': res.latitude,
@@ -182,3 +213,5 @@ class Geolocate:
 
         self.geocoded_data.drop(columns=[col for col in columns_to_drop if col in self.geocoded_data.columns],
                                 inplace=True)
+
+        self._round_coords()
