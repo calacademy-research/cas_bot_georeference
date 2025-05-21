@@ -1,32 +1,25 @@
 #!/usr/bin/env python3
 """
 Geolocate CSV(s) via GEOLocate webservice (Python 3.12)
-Usage:
-  # Single file:
-  python geolocate.py -i in.csv -o out.csv [--cache-db cache.sqlite] [--delay 0.6]
 
-  # Directory:
-  python geolocate.py -i input_folder -o output_folder [--cache-db cache.sqlite] [--delay 0.6]
-
-Encapsulated in one Geolocate class. Supports file or directory input/output.
-Always returns only the best (first) result per record, and writes blank fields if no match.
-This is a modified version of a demo
-created by the Yale Peabody Museum Division of Informatics:https://github.com/YPM-Informatics/glc_py
+Processes all .csv files in geo_csvs/input_csv/, concatenates them,
+georeferences using GEOLocate API, and stores results in self.geocoded_data.
 """
-import argparse
-import csv
+
 import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-
+from types import SimpleNamespace
+import bels_reformat
+import pandas as pd
 import requests
 import requests_cache
 
+
 class Geolocate:
-    """Encapsulates GEOLocate CSV processing logic for files or directories.
-       Uses SQLlite caching to speed up batch processing. Defines result headers and input options
-    """
+    """Processes all CSVs in geo_csvs/input_csv and returns georeferenced results as a DataFrame."""
+
     @dataclass
     class Result:
         latitude: float
@@ -50,52 +43,46 @@ class Geolocate:
         'languageKey': '0'
     }
 
-    def __init__(self):
-        self.args = self._parse_args()
-        if self.args.verbose:
-            logging.basicConfig(level=logging.DEBUG)
-        # Setup persistent caching (SQLite)
+    def __init__(self, params: dict = None):
+        self.args = self._dict_to_namespace(params or {})
+        self.geocoded_data = pd.DataFrame()
+
+        logging.basicConfig(
+            level=logging.DEBUG if self.args.verbose else logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+
         requests_cache.install_cache(
             cache_name=self.args.cache_db or 'geolocate_cache',
-            backend='sqlite', expire_after=None
+            backend='sqlite',
+            expire_after=None
         )
+
+        self._process()
 
     @staticmethod
-    def _parse_args():
-        parser = argparse.ArgumentParser(
-            description='Geolocate CSV(s) via GEOLocate webservice'
+    def _dict_to_namespace(d: dict):
+        """Convert dict to SimpleNamespace with defaults."""
+        ns = SimpleNamespace(
+            delay=d.get('delay', 0.6),
+            verbose=d.get('verbose', False),
+            cache_db=d.get('cache_db', None),
+            country=d.get('country', 'country'),
+            state=d.get('state', 'state'),
+            county=d.get('county', 'county'),
+            locality=d.get('locality', 'locality')
         )
-        parser.add_argument('-i', '--input', type=Path, required=True,
-                            help='Input CSV file or directory containing CSVs')
-        parser.add_argument('-o', '--output', type=Path, required=True,
-                            help='Output CSV file or directory')
-        parser.add_argument('--cache-db', type=str, default=None,
-                            help='SQLite cache DB filename (defaults to builtin cache)')
-        parser.add_argument('-t', '--delay', type=float, default=0.6,
-                            help='Seconds between API calls')
-        parser.add_argument('-v', '--verbose', action='store_true',
-                            help='Enable debug logging')
-        parser.add_argument('--country', default='country', help='Country field name')
-        parser.add_argument('--state', default='state', help='State field name')
-        parser.add_argument('--county', default='county', help='County field name')
-        parser.add_argument('--locality', default='locality',
-                            help='Locality field name')
-        return parser.parse_args()
+        return ns
 
     def _georef(self, user_params: dict) -> list['Geolocate.Result']:
-        """requests the geolocate endpoint with a user params dict on a row by row basis
-            args:
-                user_params: a dictionary of default inputs, concats with the default options
-            returns:
-                result: a list of dictionaries, used to create a dataframe in postprocessing
-        """
+        """Calls GEOLocate API with user params, returns parsed result list."""
         params = {**self.DEFAULT_OPTS, **user_params, 'fmt': 'json'}
-        logging.debug(f"Geolocate request params: {params}")
+        logging.debug(f"Requesting GEOLocate API with params: {params}")
         resp = requests.get(self.ENDPOINT, params=params)
         resp.raise_for_status()
-        data = resp.json()
+
         results = []
-        for feat in data.get('resultSet', {}).get('features', []):
+        for feat in resp.json().get('resultSet', {}).get('features', []):
             p = feat['properties']
             lon, lat = feat['geometry']['coordinates']
             results.append(self.Result(
@@ -112,45 +99,99 @@ class Geolocate:
             ))
         return results
 
-    def _process_file(self, in_path: Path, out_path: Path):
-        """Process a single CSV and batch processes it with the georeference endpoint.
-           args:
-                in_path: the path of the input csv
-                out_path: the paths to write the output csv to
-           returns:
-                None
-           """
-        logging.info(f"Processing file: {in_path} -> {out_path}")
-        with in_path.open(newline='', encoding='utf8') as inf, \
-             out_path.open('w', newline='', encoding='utf8') as outf:
-            reader = csv.DictReader(inf)
-            if not reader.fieldnames:
-                logging.warning(f"Skipping {in_path}: no headers found.")
-                return
-            fieldnames = reader.fieldnames + [
-                'Geo_LocalityID', 'Geo_ResultID', 'Geo_Lat', 'Geo_Lon',
-                'Geo_UncertaintyM', 'Geo_Score', 'Geo_Precision',
-                'Geo_ParsePattern', 'Geo_NumResults'
-            ]
-            writer = csv.DictWriter(outf, fieldnames=fieldnames)
-            writer.writeheader()
+    def _decimal_places(self, val):
+        """Returns the number of decimal places in a float or stringified float."""
+        try:
+            s = str(val)
+            if '.' in s:
+                return len(s.split('.')[-1].rstrip('0'))
+        except Exception:
+            pass
+        return 0
 
-            for idx, row in enumerate(reader, start=1):
-                logging.debug(f"Row {idx}: {row}")
+
+    def _round_coords(self):
+        """Rounds Geo_Lat and Geo_Lon to the least precise decimal place between the two per row."""
+
+        def _round_row(row):
+            lat = row['Geo_Lat']
+            lon = row['Geo_Lon']
+            try:
+                lat_dp = self._decimal_places(lat)
+                lon_dp = self._decimal_places(lon)
+                target_dp = min(lat_dp, lon_dp)
+
+                if pd.notnull(lat) and pd.notnull(lon):
+                    row['Geo_Lat'] = round(float(lat), target_dp)
+                    row['Geo_Lon'] = round(float(lon), target_dp)
+            except Exception:
+                pass
+            return row
+
+        self.geocoded_data = self.geocoded_data.apply(_round_row, axis=1)
+
+
+    def _load_and_concat_csvs(self, folder: Path) -> pd.DataFrame:
+        """Loads and concatenates all CSV files from the input folder."""
+        all_csvs = sorted(folder.glob("*.csv"))
+        if not all_csvs:
+            raise FileNotFoundError(f"No CSV files found in {folder}")
+        logging.info(f"Loading {len(all_csvs)} files from {folder}")
+        return pd.concat([pd.read_csv(f) for f in all_csvs], ignore_index=True)
+
+    def _process(self):
+        input_folder = Path("geo_csvs/input_csv")
+        df = self._load_and_concat_csvs(input_folder)
+        df = bels_reformat.rename_drop_columns(df)
+
+        df.reset_index(inplace=True)  # Keep track of original row order
+        all_results = []
+
+        for idx, row in df.iterrows():
+
+            row_data = {
+                'index': idx,
+                'country': row.get('country', ''),
+                'stateprovince': row.get('stateprovince', ''),
+                'county': row.get('county', ''),
+                'locality': row.get('locality', ''),
+                'bels_match': row.get('bels_match', False),
+                'Geo_Source': '',
+                'Geo_NumResults': '',
+                'Geo_ResultID': '',
+                'Geo_Lat': '',
+                'Geo_Lon': '',
+                'Geo_UncertaintyM': '',
+                'Geo_Score': '',
+                'Geo_Precision': '',
+                'Geo_ParsePattern': '',
+                'datum': row.get('datum', ''),
+                'coordinate_uncertainty_meters': row.get('coordinate_uncertainty_meters', ''),
+            }
+
+            if row_data['bels_match']:
+                # Use BELS output
+                row_data['Geo_Lat'] = row.get('latitude')
+                row_data['Geo_Lon'] = row.get('longitude')
+                row_data['Geo_UncertaintyM'] = row.get('coordinate_uncertainty_meters')
+                row_data['Geo_ResultID'] = ''
+                row_data['Geo_Source'] = 'bels'
+            else:
+                # Use GEOLocate
                 params = {
-                    'country': row.get(self.args.country, ''),
-                    'state': row.get(self.args.state, ''),
-                    'county': row.get(self.args.county, ''),
-                    'locality': row.get(self.args.locality, '')
+                    'country': row_data['country'],
+                    'state': row_data['stateprovince'],
+                    'county': row_data['county'],
+                    'locality': row_data['locality']
                 }
+                logging.debug(f"Sending GEOLocate query: {params}")
                 results = self._georef(params)
-                # always output one row per input, with best result or blanks
-                row['Geo_NumResults'] = len(results)
+                row_data['Geo_Source'] = 'geolocate'
+                row_data['Geo_NumResults'] = len(results)
+
                 if results:
                     res = results[0]
-                    out = row.copy()
-                    out.update({
-                        'Geo_LocalityID': idx,
+                    row_data.update({
                         'Geo_ResultID': 1,
                         'Geo_Lat': res.latitude,
                         'Geo_Lon': res.longitude,
@@ -159,42 +200,18 @@ class Geolocate:
                         'Geo_Precision': res.precision,
                         'Geo_ParsePattern': res.parse_pattern
                     })
-                else:
-                    out = row.copy()
-                    out.update({
-                        'Geo_LocalityID': idx,
-                        'Geo_ResultID': '',
-                        'Geo_Lat': '',
-                        'Geo_Lon': '',
-                        'Geo_UncertaintyM': '',
-                        'Geo_Score': '',
-                        'Geo_Precision': '',
-                        'Geo_ParsePattern': ''
-                    })
-                writer.writerow(out)
+
                 time.sleep(self.args.delay)
 
-    def run(self):
-        """Runs main script with command line args , running the main process_file function"""
-        args = self.args
-        # Determine input files
-        if args.input.is_dir():
-            input_files = sorted(args.input.glob('*.csv'))
-        else:
-            input_files = [args.input]
-        # Prepare outputs
-        if args.output.exists() and args.output.is_dir():
-            out_dir = args.output
-        else:
-            if len(input_files) > 1:
-                args.output.mkdir(parents=True, exist_ok=True)
-                out_dir = args.output
-            else:
-                out_dir = None
-        # Process each file
-        for in_file in input_files:
-            out_file = out_dir / in_file.name if out_dir else args.output
-            self._process_file(in_file, out_file)
+            all_results.append(row_data)
 
-if __name__ == '__main__':
-    Geolocate().run()
+        self.geocoded_data = pd.DataFrame(all_results)
+
+        columns_to_drop = ['latitude', 'longitude', 'latitude_x', 'longitude_x',
+                           'country_x', 'country_y', 'state', 'stateprovince_x', 'stateprovince_y',
+                           'county_x', 'county_y']
+
+        self.geocoded_data.drop(columns=[col for col in columns_to_drop if col in self.geocoded_data.columns],
+                                inplace=True)
+
+        self._round_coords()
