@@ -20,7 +20,6 @@ class ProcessAll:
         self.geo_csv = self.geolocate.geocoded_data
 
         self.logger.info("Initializing and running GVS...")
-        self.geo_csv.to_csv("geo_csvs/test_csvs/test_geo_output2.csv")
         self.gvs_process = GVSProcess(geocoded_csv=self.geo_csv)
 
         self.gvs_checked = self.gvs_process.process_csv_gvs()
