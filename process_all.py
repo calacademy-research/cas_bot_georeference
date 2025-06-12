@@ -25,7 +25,7 @@ class ProcessAll:
         self.gvs_checked = self.gvs_process.process_csv_gvs()
 
         self.logger.info("Initializing and cleaning coordinates...")
-        self.clean_coords = CleanCoords(self.gvs_checked)
+        self.clean_coords = CleanCoords(self.gvs_checked, logger=self.logger)
         self.logger.info("Pipeline completed.")
 
 

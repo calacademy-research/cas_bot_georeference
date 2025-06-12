@@ -1,19 +1,21 @@
-"""This file will be for post-processing cleaning of Lat/Long coordinates.
-Occupying the last major step of the pipeline. Geolocate --> GVS --> Cleaning"""
 import csv
 import sqlite3
 import pandas as pd
-import re
-from rapidfuzz import fuzz
+import subprocess
+import tempfile
+import os
 
 class CleanCoords:
-    def __init__(self, processed_csv):
+    def __init__(self, processed_csv, logger):
         self.final_csv = processed_csv
+        self.logger = logger
         self.conn = None
         self.gazetteer_df = None
+
+        self.logger.info("Initializing and cleaning coordinates...")
         self.create_new_sqlite_gazetteer()
         self.initial_filter_results()
-        self.apply_fuzzy_matching()
+        self.clean_coordinates_with_r()
         self.placeholder_function()
 
     def create_new_sqlite_gazetteer(self):
@@ -35,6 +37,7 @@ class CleanCoords:
             print(f"Table '{table_name}' already exists. Skipping creation.")
 
         self.gazetteer_df = pd.read_sql_query(f"SELECT * FROM {table_name}", self.conn)
+        self.gazetteer_df['place_name'] = self.gazetteer_df['place_name'].astype(str)
 
     def initial_filter_results(self):
         self.final_csv['com_georef'] = False
@@ -57,40 +60,63 @@ class CleanCoords:
             centroid_missing_flag
         )
 
-    def extract_place_name(self, locality):
-        tokens = self.normalize_locality_string(locality)
-        for token in tokens:
-            match = self.fuzzy_match_place(token, self.gazetteer_df)
-            if match is not None:
-                return {
-                    'matched_name': match['place_name'],
-                    'matched_lat': match['Latitude'],
-                    'matched_lon': match['Longitude']
-                }
-        return {'matched_name': None, 'matched_lat': None, 'matched_lon': None}
+    def clean_coordinates_with_r(self):
+        # Filter rows to check
+        to_check = self.final_csv[self.final_csv['com_georef'] == False].copy()
+        to_check = to_check[
+            pd.to_numeric(to_check['latitude'], errors='coerce').between(-90, 90) &
+            pd.to_numeric(to_check['longitude'], errors='coerce').between(-180, 180)
+            ].copy()
 
-    def normalize_locality_string(self, text):
-        if pd.isna(text):
-            return []
-        text = text.lower()
-        text = re.sub(r'[^\w\s,]', '', text)
-        return [t.strip() for t in text.split(',')]
+        # Create temp input/output paths in the r_coord_clean directory
+        coord_clean_dir = "r_coord_clean"
+        os.makedirs(coord_clean_dir, exist_ok=True)
 
-    def fuzzy_match_place(self, token, gazetteer):
-        scores = gazetteer['place_name'].apply(lambda name: fuzz.partial_ratio(token, name.lower()))
-        best_idx = scores.idxmax()
-        if scores[best_idx] > 80:
-            return gazetteer.loc[best_idx]
-        return None
+        input_path = os.path.join(coord_clean_dir, "temp_input.csv")
+        output_path = os.path.join(coord_clean_dir, "temp_output.csv")
 
-    def apply_fuzzy_matching(self):
-        match_results = self.final_csv['locality'].apply(self.extract_place_name)
-        match_df = pd.DataFrame(match_results.tolist())
-        self.final_csv = pd.concat([self.final_csv.reset_index(drop=True), match_df.reset_index(drop=True)], axis=1)
+        # Write input CSV
+        to_check.to_csv(input_path, index=False)
+
+
+        try:
+            subprocess.run([
+                "Rscript", os.path.join(coord_clean_dir, "clean_coordinates.R"),
+                input_path, output_path
+            ], check=True)
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Rscript failed: {e}")
+            raise
+
+        # Read cleaned result
+        cleaned = pd.read_csv(output_path)
+
+        #converting ID to int64
+        to_check['id'] = to_check['id'].astype('Int64')
+        self.final_csv['id'] = self.final_csv['id'].astype('Int64')
+
+        to_check = to_check.merge(cleaned[['id', 'cc_valid']], on='id', how='left')
+
+        # Update flags in final DataFrame
+        self.final_csv = self.final_csv.merge(to_check[['id', 'cc_valid']], on='id', how='left')
+        self.final_csv['cc_valid'] = self.final_csv['cc_valid'].fillna(False)
+        self.final_csv.loc[self.final_csv['cc_valid'] == False, 'com_georef'] = True
+
+        # Cleanup
+        os.remove(input_path)
+        os.remove(output_path)
 
     def placeholder_function(self):
-        self.final_csv.to_csv("geo_csvs/output_csv/final_output.csv", index=False, encoding="utf-8-sig", quoting=csv.QUOTE_NONNUMERIC)
-        print("Coordinates Cleaned!")
+        self.final_csv.to_csv("geo_csvs/output_csv/all_output.csv", index=False,
+                              encoding="utf-8-sig", quoting=csv.QUOTE_NONNUMERIC)
+
+        self.final_csv[self.final_csv['cc_valid']].to_csv("geo_csvs/output_csv/valid_output.csv", index=False,
+                                                           encoding="utf-8-sig", quoting=csv.QUOTE_NONNUMERIC)
+
+        self.final_csv[~self.final_csv['cc_valid']].to_csv("geo_csvs/output_csv/flagged_output.csv", index=False,
+                                                            encoding="utf-8-sig", quoting=csv.QUOTE_NONNUMERIC)
+
+        print("Coordinates cleaned and files written.")
 
     def close_connection(self):
         if self.conn:

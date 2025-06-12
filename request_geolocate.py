@@ -149,6 +149,8 @@ class Geolocate:
 
         for idx, row in df.iterrows():
 
+
+
             row_data = {
                 'index': idx,
                 'country': row.get('country', ''),
@@ -186,6 +188,7 @@ class Geolocate:
                 }
                 logging.debug(f"Sending GEOLocate query: {params}")
                 results = self._georef(params)
+                logging.debug(f"Recieving GEOLocate results: {results}")
                 row_data['Geo_Source'] = 'geolocate'
                 row_data['Geo_NumResults'] = len(results)
 
