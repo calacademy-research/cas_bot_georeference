@@ -2,3 +2,7 @@
 .idea/
 venv/
 *.sqlite
+geo_ref_config.py
+*.txt
+.Rhistory
+__pycache__/
