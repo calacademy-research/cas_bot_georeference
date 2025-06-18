@@ -1,10 +1,7 @@
 import csv
-import sqlite3
 import pandas as pd
 import subprocess
-import tempfile
 import os
-import numpy as np
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.cluster import DBSCAN
@@ -15,35 +12,11 @@ class CleanCoords:
         self.final_csv = processed_csv
         self.logger = logger
         self.conn = None
-        self.gazetteer_df = None
-
         self.logger.info("Initializing and cleaning coordinates...")
-        self.create_new_sqlite_gazetteer()
         self.initial_filter_results()
-        # self.clean_coordinates_with_r()
+        self.clean_coordinates_with_r()
         self.detect_outliers_by_county()
-        self.placeholder_function()
-
-    def create_new_sqlite_gazetteer(self):
-        gazetteer_csv = pd.read_csv("geo_csvs/test_csvs/CA_gazetteer.csv")
-        self.conn = sqlite3.connect("geolocate_cache.sqlite")
-        table_name = "geo_gazetteer"
-
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name=?;
-        """, (table_name,))
-        table_exists = cursor.fetchone()
-
-        if not table_exists:
-            gazetteer_csv.to_sql(table_name, self.conn, if_exists='fail', index=False)
-            print(f"Table '{table_name}' created.")
-        else:
-            print(f"Table '{table_name}' already exists. Skipping creation.")
-
-        self.gazetteer_df = pd.read_sql_query(f"SELECT * FROM {table_name}", self.conn)
-        self.gazetteer_df['place_name'] = self.gazetteer_df['place_name'].astype(str)
+        self.write_output_csvs()
 
     def initial_filter_results(self):
         self.final_csv['com_georef'] = False
@@ -56,6 +29,12 @@ class CleanCoords:
         stateprovince_mismatch = self.final_csv['gvs_state'].str.strip().str.lower() != self.final_csv['stateprovince'].str.strip().str.lower()
         locality_blank = self.final_csv['locality'].isna() | (self.final_csv['locality'].str.strip() == '')
         centroid_missing_flag = locality_blank & (self.final_csv['latlong_err'] != "Possible centroid")
+        # review after meeting.
+        duplicated_coords = (
+                self.final_csv.duplicated(subset=['latitude', 'longitude'], keep=False)
+                & (self.final_csv['latlong_err'] != 'Possible centroid')
+        )
+
 
         self.final_csv['com_georef'] = (
             missing_coords |
@@ -63,7 +42,8 @@ class CleanCoords:
             county_mismatch |
             country_mismatch |
             stateprovince_mismatch |
-            centroid_missing_flag
+            centroid_missing_flag |
+            duplicated_coords
         )
 
     def clean_coordinates_with_r(self):
@@ -106,10 +86,14 @@ class CleanCoords:
 
     def detect_outliers_by_county(self, contamination=0.1):
         self.final_csv['outlier_score'] = 1
-        counties = self.final_csv['county'].dropna().unique()
+
+        # Filter to only non-com_georef rows
+        not_georef = self.final_csv[self.final_csv['com_georef'] == False]
+
+        counties = not_georef['county'].dropna().unique()
 
         for county in counties:
-            subset = self.final_csv[self.final_csv['county'] == county].copy()
+            subset = not_georef[not_georef['county'] == county].copy()
             coords = subset[['latitude', 'longitude']].dropna().values
 
             if len(coords) < 10:
@@ -123,7 +107,10 @@ class CleanCoords:
             iso_forest = IsolationForest(contamination=contamination, random_state=42)
             iso_forest_labels = iso_forest.fit_predict(coords_std)
 
-            lof = LocalOutlierFactor(n_neighbors=20, contamination=contamination)
+            n_neighbors = min(20, len(coords_std) - 1)
+
+            lof = LocalOutlierFactor(n_neighbors=n_neighbors, contamination=contamination)
+
             lof_labels = lof.fit_predict(coords_std)
 
             ensemble_labels = []
@@ -134,19 +121,8 @@ class CleanCoords:
             subset_indices = subset.index[:len(ensemble_labels)]
             self.final_csv.loc[subset_indices, 'outlier_score'] = ensemble_labels
 
-    def placeholder_function(self):
+    def write_output_csvs(self):
         self.final_csv.to_csv("geo_csvs/output_csv/all_output.csv", index=False,
                               encoding="utf-8-sig", quoting=csv.QUOTE_NONNUMERIC)
 
-        self.final_csv[self.final_csv['cc_valid']].to_csv("geo_csvs/output_csv/valid_output.csv", index=False,
-                                                           encoding="utf-8-sig", quoting=csv.QUOTE_NONNUMERIC)
-
-        self.final_csv[~self.final_csv['cc_valid']].to_csv("geo_csvs/output_csv/flagged_output.csv", index=False,
-                                                            encoding="utf-8-sig", quoting=csv.QUOTE_NONNUMERIC)
-
         print("Coordinates cleaned and files written.")
-
-    def close_connection(self):
-        if self.conn:
-            self.conn.close()
-            print("SQLite connection closed.")

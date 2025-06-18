@@ -6,3 +6,4 @@ geo_ref_config.py
 *.txt
 .Rhistory
 __pycache__/
+geolocate_cached.sqlite
