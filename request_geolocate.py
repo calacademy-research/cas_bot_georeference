@@ -2,8 +2,10 @@
 """
 Geolocate CSV(s) via GEOLocate webservice (Python 3.12)
 
-Processes all .csv files in geo_csvs/input_csv/, concatenates them,
-georeferences using GEOLocate API, and stores results in self.geocoded_data.
+Encapsulated in one Geolocate class. Supports file or directory input/output.
+Always returns only the best (first) result per record, and writes blank fields if no match.
+This is a modified version of a demo
+created by the Yale Peabody Museum Division of Informatics:https://github.com/YPM-Informatics/glc_py
 """
 
 import logging
@@ -11,11 +13,10 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-import bels_reformat
 import pandas as pd
 import requests
 import requests_cache
-
+import bels_reformat
 
 class Geolocate:
     """Processes all CSVs in geo_csvs/input_csv and returns georeferenced results as a DataFrame."""
@@ -38,13 +39,14 @@ class Geolocate:
         'hwyX': 'true',
         'enableH2O': 'true',
         'doUncert': 'true',
-        'doPoly': 'false',
-        'displacePoly': 'false',
+        'doPoly': 'true',
+        'displacePoly': 'true',
         'languageKey': '0'
     }
 
-    def __init__(self, params: dict = None):
+    def __init__(self, geo_df: pd.DataFrame, params: dict = None):
         self.args = self._dict_to_namespace(params or {})
+        self.geo_df = geo_df
         self.geocoded_data = pd.DataFrame()
 
         logging.basicConfig(
@@ -131,17 +133,9 @@ class Geolocate:
         self.geocoded_data = self.geocoded_data.apply(_round_row, axis=1)
 
 
-    def _load_and_concat_csvs(self, folder: Path) -> pd.DataFrame:
-        """Loads and concatenates all CSV files from the input folder."""
-        all_csvs = sorted(folder.glob("*.csv"))
-        if not all_csvs:
-            raise FileNotFoundError(f"No CSV files found in {folder}")
-        logging.info(f"Loading {len(all_csvs)} files from {folder}")
-        return pd.concat([pd.read_csv(f) for f in all_csvs], ignore_index=True)
-
     def _process(self):
-        input_folder = Path("geo_csvs/input_csv")
-        df = self._load_and_concat_csvs(input_folder)
+        """runs all major methods in request_geolocate"""
+        df = self.geo_df
         df = bels_reformat.rename_drop_columns(df)
 
         df.reset_index(inplace=True)  # Keep track of original row order
@@ -164,6 +158,7 @@ class Geolocate:
                 'Geo_Lat': '',
                 'Geo_Lon': '',
                 'Geo_UncertaintyM': '',
+                'Geo_UncertaintyPolygon': '',
                 'Geo_Score': '',
                 'Geo_Precision': '',
                 'Geo_ParsePattern': '',
@@ -201,7 +196,9 @@ class Geolocate:
                         'Geo_UncertaintyM': res.uncertainty_radius_m,
                         'Geo_Score': res.score,
                         'Geo_Precision': res.precision,
-                        'Geo_ParsePattern': res.parse_pattern
+                        'Geo_ParsePattern': res.parse_pattern,
+                        'Geo_UncertaintyPolygon': res.uncertainty_polygon
+
                     })
 
                 time.sleep(self.args.delay)
