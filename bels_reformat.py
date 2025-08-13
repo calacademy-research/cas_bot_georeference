@@ -18,7 +18,6 @@ def rename_drop_columns(bels_csv: pd.DataFrame):
     bels_csv['county'] = bels_csv['county'].astype(str).str.strip() + " County"
 
     # for testing purposes
-    # bels_csv = bels_csv.sample(n=20, random_state=39)
+    # bels_csv = bels_csv.sample(n=25, random_state=20)
 
     return bels_csv
-
