@@ -23,7 +23,7 @@ class ProcessAll:
 
         self.geo_csv = self._load_and_concat_csvs(folder=input_folder)
 
-        df, key_df = grouper_main(self.geo_csv)
+        key_df, df = grouper_main(self.geo_csv)
 
         # grouped_localities key
         key_df.to_csv(f"geo_csvs{os.path.sep}output_csv{os.path.sep}grouper_df_key.csv", sep=",", quotechar='"')
