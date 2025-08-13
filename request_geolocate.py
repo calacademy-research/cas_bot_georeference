@@ -39,8 +39,8 @@ class Geolocate:
         'hwyX': 'true',
         'enableH2O': 'true',
         'doUncert': 'true',
-        'doPoly': 'true',
-        'displacePoly': 'true',
+        'doPoly': 'false',
+        'displacePoly': 'false',
         'languageKey': '0'
     }
 

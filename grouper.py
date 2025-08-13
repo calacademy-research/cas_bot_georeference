@@ -992,13 +992,23 @@ def propagate_coordinates(df: pd.DataFrame) -> pd.DataFrame:
     ]
 
     df = df.copy()
-    for gid, group in df.groupby('Final_Suggested_ID'):
-        if gid == '0':  # skip null locality group
+
+    if 'bels_match' not in df.columns:
+        df['bels_match'] = False
+
+    for gid, group in df.groupby('Final_Suggested_ID', dropna=False):
+        if str(gid) == '0':
             continue
         for field in coordinate_fields:
-            values = group[field].dropna().unique()
-            if len(values) == 1:
-                df.loc[group.index, field] = values[0]
+            if field in df.columns:
+                values = group[field].dropna().unique()
+                if len(values) == 1:
+                    df.loc[group.index, field] = values[0]
+
+        has_any_coord = df.loc[group.index, coordinate_fields].notna().any(axis=1)
+        if has_any_coord.any():
+            df.loc[group.index, 'bels_match'] = True
+
     return df
 
 
