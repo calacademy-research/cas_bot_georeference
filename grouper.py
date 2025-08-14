@@ -1057,4 +1057,7 @@ def grouper_main(geo_csv=None):
     # 12) export csvs
     key_df, merged_df = export_grouped_csv(grouped, df, grouping_field)
 
+    # 13) propagate coordinates
+    merged_df = propagate_coordinates(merged_df)
+
     return key_df, merged_df
