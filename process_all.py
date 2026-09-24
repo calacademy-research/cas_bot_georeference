@@ -1,11 +1,10 @@
 import argparse
 import os.path
-
-import pandas as pd
 from pathlib import Path
 from request_geolocate import Geolocate
 from process_gvs import GVSProcess
 from clean_coords import CleanCoords
+from get_localities import GetLocalities
 from grouper import *
 import logging
 
@@ -17,6 +16,7 @@ class ProcessAll:
             level=logging.DEBUG if cli_args.get("verbose") else logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
+
         self.logger.info("Running Grouper")
 
         input_folder = Path("geo_csvs/input_csv")
@@ -41,7 +41,6 @@ class ProcessAll:
         self.clean_coords = CleanCoords(self.gvs_checked, logger=self.logger)
         self.logger.info("Pipeline completed.")
 
-
     def _load_and_concat_csvs(self, folder: Path) -> pd.DataFrame:
         """Loads and concatenates all CSV files from the input folder."""
         all_csvs = sorted(folder.glob("*.csv"))
@@ -49,6 +48,7 @@ class ProcessAll:
             raise FileNotFoundError(f"No CSV files found in {folder}")
         logging.info(f"Loading {len(all_csvs)} files from {folder}")
         return pd.concat([pd.read_csv(f, quotechar='"', sep=",") for f in all_csvs], ignore_index=True)
+
 
 
 if __name__ == '__main__':

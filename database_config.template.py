@@ -1,0 +1,5 @@
+SPECIFY_DATABASE_HOST = "0.0.0.0"
+SPECIFY_DATABASE_PORT = 3306
+SPECIFY_DATABASE = "database_name"
+USER = "root"
+PASSWORD = "password"
