@@ -1,4 +1,4 @@
-requests~=2.32.4
+requests~=2.33.0
 requests-cache~=1.2.1
 pandas~=2.2.3
 rapidfuzz ~= 3.13.0
@@ -12,6 +12,7 @@ packaging==24.2
 pandas==2.2.3
 platformdirs==4.2.2
 python-levenshtein==0.26.1
-scikit-learn==1.6.1
 tomli==2.0.1
 tqdm==4.67.1
+mysql-connector-python~=9.1.0
+scipy~=1.18.1
