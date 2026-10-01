@@ -1,5 +1,6 @@
 import argparse
 import os.path
+import pandas as pd
 from pathlib import Path
 from request_geolocate import Geolocate
 from process_gvs import GVSProcess
@@ -14,7 +15,7 @@ class ProcessAll:
         self.logger = logging.getLogger(__name__)
         logging.basicConfig(
             level=logging.DEBUG if cli_args.get("verbose") else logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s'
+            format='%(asctime)s - %(levelname)s - %(message)s', force=True
         )
 
         self.logger.info("Running Grouper")
@@ -23,11 +24,7 @@ class ProcessAll:
 
         self.geo_csv = self._load_and_concat_csvs(folder=input_folder)
 
-        key_df, df = grouper_main(self.geo_csv)
-
-        # grouped_localities key
-        key_df.to_csv(f"geo_csvs{os.path.sep}output_csv{os.path.sep}grouper_df_key.csv", sep=",", quotechar='"')
-
+        df = grouper_main(self.geo_csv)
 
         self.logger.info("Running GEOLocate...")
         self.geolocate = Geolocate(df, cli_args)
@@ -56,10 +53,7 @@ if __name__ == '__main__':
     parser.add_argument('--cache-db', type=str, default=None, help='SQLite cache DB filename')
     parser.add_argument('-t', '--delay', type=float, default=0.6, help='Delay between GEOLocate API calls')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable debug logging')
-    parser.add_argument('--country', default='country', help='Country field name')
-    parser.add_argument('--state', default='state', help='State field name')
-    parser.add_argument('--county', default='county', help='County field name')
-    parser.add_argument('--locality', default='locality', help='Locality field name')
+    # parser.add_argument('-tn', '--tax_name', type=str, default=None, help="filter taxonomy in post")
 
     args = parser.parse_args()
     arg_dict = vars(args)  # Convert Namespace to dict

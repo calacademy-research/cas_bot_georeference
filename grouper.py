@@ -2,6 +2,8 @@ import pandas as pd
 import re
 import os
 import warnings
+
+from pandas import DataFrame
 from rapidfuzz import fuzz, process
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -914,11 +916,9 @@ def attach_order_and_anchor(grouped: pd.DataFrame, singleton_inserts: dict) -> p
 
 def export_grouped_csv(grouped: pd.DataFrame,
                        df: pd.DataFrame,
-                       grouping_field: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+                       grouping_field: str) -> DataFrame:
     """
-    Build and RETURN the key and merged DataFrames (no file IO).
-    Respects your new key_cols; sorts using internal columns but
-    doesn’t require them to appear in the final key_df.
+    Build and RETURN the merged DataFrame.
     """
 
     g = grouped.copy()
@@ -950,22 +950,8 @@ def export_grouped_csv(grouped: pd.DataFrame,
     if 'Anchor_Grouper_ID' not in g.columns:
         g['Anchor_Grouper_ID'] = None
 
-    # ---- KEY DF (one row per grouped record) ----
-    key_cols = [
-        'catalogNumber', 'scientificName', 'institutionCode',
-        'collectionCode', 'country', 'stateProvince', 'county',
-        'locality', grouping_field, 'Final_Suggested_ID',
-        'normalized_locality', 'Confidence'
-    ]
-    key_cols = [c for c in key_cols if c in g.columns]
-
-    # Sort FIRST using internal columns, then select/export columns
-    key_sort_cols = [c for c in ['_gid_order', 'Grouper_ID', 'catalogNumber'] if c in g.columns]
-    g_sorted_for_key = g.sort_values(key_sort_cols, kind='mergesort') if key_sort_cols else g
-    key_df = g_sorted_for_key[key_cols].drop_duplicates()
-
     # ---- MERGED DF (original df + grouping outputs) ----
-    merge_cols = [grouping_field, 'Grouper_ID', 'Final_Suggested_ID',
+    merge_cols =  [grouping_field, 'Grouper_ID', 'Final_Suggested_ID',
                   'normalized_locality', 'Confidence',
                   'Distance_Direction', 'Anchor_Grouper_ID', '_gid_order']
     merge_cols = [c for c in merge_cols if c in g.columns]
@@ -975,7 +961,7 @@ def export_grouped_csv(grouped: pd.DataFrame,
     if merged_sort_cols:
         merged_df = merged_df.sort_values(merged_sort_cols, kind='mergesort')
 
-    return key_df, merged_df
+    return merged_df
 
 
 
@@ -1055,9 +1041,18 @@ def grouper_main(geo_csv=None):
     grouped = attach_order_and_anchor(grouped, singleton_inserts)
 
     # 12) export csvs
-    key_df, merged_df = export_grouped_csv(grouped, df, grouping_field)
+    merged_df = export_grouped_csv(grouped, df, grouping_field)
 
     # 13) propagate coordinates
     merged_df = propagate_coordinates(merged_df)
 
-    return key_df, merged_df
+    stack_columns = ["LocalityID", "collection_date", "taxonomic_name"]
+
+    group_values = (merged_df.groupby("Final_Suggested_ID", sort=False, dropna=False)[stack_columns].agg(list))
+
+
+    for column in stack_columns:
+        merged_df[column] = merged_df["Final_Suggested_ID"].map(group_values[column])
+
+
+    return merged_df

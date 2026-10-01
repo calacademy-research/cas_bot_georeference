@@ -41,10 +41,11 @@ class CleanCoords:
         """re-formats and drops columns from geolocate pipeline that are not necessary for
            Community geo-referencing"""
 
-        reduced_final_csv = self.final_csv[['index', 'Final_Suggested_ID', 'Confidence', 'country', 'stateprovince',
-                                            'county', 'locality', 'normalized_locality',
-                                            'bels_match', 'Geo_Lat', 'Geo_Lon', 'Geo_UncertaintyM',
-                                            'datum', 'com_georef']]
+        reduced_final_csv = self.final_csv[['index', 'LocalityID', 'Final_Suggested_ID', 'Confidence', 'country',
+                                            'stateprovince','county', 'locality', 'normalized_locality',
+                                            'collection_date', 'taxonomic_name', 'bels_match', 'Geo_Lat',
+                                            'Geo_Lon', 'Geo_UncertaintyM', 'datum', 'com_georef',
+                                            'collection_date', 'taxonomic_name']]
 
         self.import_ready = reduced_final_csv[~reduced_final_csv['com_georef']]
 
