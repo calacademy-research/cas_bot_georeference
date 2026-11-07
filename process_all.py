@@ -5,7 +5,6 @@ from pathlib import Path
 from request_geolocate import Geolocate
 from process_gvs import GVSProcess
 from clean_coords import CleanCoords
-from get_localities import GetLocalities
 from grouper import *
 import logging
 

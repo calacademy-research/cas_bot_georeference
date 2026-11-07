@@ -55,7 +55,7 @@ class GetLocalities:
         self.record_full.drop(columns="geography_full_name", inplace=True)
 
         self.record_full.to_csv(f"geo_csvs{os.path.sep}raw_localities{os.path.sep}{self.output_csv}.csv",
-                                sep=",", quotechar='"')
+                                sep=",", quotechar='"', index=False)
 
     def split_geography_columns(self):
         parts = (
@@ -67,7 +67,7 @@ class GetLocalities:
 
         insert_at = self.record_full.columns.get_loc("LocalityID") + 1
 
-        for offset, column in enumerate(("country", "state", "county")):
+        for offset, column in enumerate(("country", "stateProvince", "county")):
             self.record_full.insert(
                 insert_at + offset,
                 column,
