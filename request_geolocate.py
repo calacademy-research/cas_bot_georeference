@@ -147,6 +147,7 @@ class Geolocate:
 
             row_data = {
                 'index': idx,
+                'localityid': row['localityid'],
                 'country': row.get('country', ''),
                 'stateprovince': row.get('stateprovince', ''),
                 'county': row.get('county', ''),
@@ -168,6 +169,8 @@ class Geolocate:
                 'Geo_ParsePattern': '',
                 'datum': row.get('datum', ''),
                 'coordinate_uncertainty_meters': row.get('coordinate_uncertainty_meters', ''),
+                'collection_date': row['collection_date'],
+                'taxonomic_name': row['taxonomic_name']
             }
 
             if row_data['bels_match']:
