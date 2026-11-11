@@ -1046,7 +1046,7 @@ def grouper_main(geo_csv=None):
     # 13) propagate coordinates
     merged_df = propagate_coordinates(merged_df)
 
-    stack_columns = ["LocalityID", "collection_date", "taxonomic_name"]
+    stack_columns = ["localityid", "collection_date", "taxonomic_name"]
 
     group_values = (merged_df.groupby("Final_Suggested_ID", sort=False, dropna=False)[stack_columns].agg(list))
 

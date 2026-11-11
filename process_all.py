@@ -23,6 +23,8 @@ class ProcessAll:
 
         self.geo_csv = self._load_and_concat_csvs(folder=input_folder)
 
+        self.geo_csv = self.geo_csv[self.geo_csv["county"] == "Trinity County"]
+
         df = grouper_main(self.geo_csv)
 
         self.logger.info("Running GEOLocate...")
